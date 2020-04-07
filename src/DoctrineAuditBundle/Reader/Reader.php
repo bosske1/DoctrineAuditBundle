@@ -146,6 +146,38 @@ class Reader
     }
 
     /**
+     * @param string $masterEntity
+     * @param $masterEntityId
+     * @param string $entity
+     * @param int|null $page
+     * @param int|null $pageSize
+     * @param string|null $transactionHash
+     * @param bool $strict
+     * @return array
+     * @throws AccessDeniedException
+     * @throws InvalidArgumentException
+     */
+    public function getAuditsByMaster(string $masterEntity, $masterEntityId, string $entity, ?int $page = null,
+                                      ?int $pageSize = null, ?string $transactionHash = null, bool $strict = true): array
+    {
+        $this->checkAuditable($masterEntity);
+        $this->checkRoles($masterEntity, Security::VIEW_SCOPE);
+
+        $this->checkAuditable($entity);
+        $this->checkRoles($entity, Security::VIEW_SCOPE);
+
+        $ids = $this->getSubEntitiesIds($masterEntity, $masterEntityId, $entity);
+
+        $queryBuilder = $this->getAuditsQueryBuilder($entity, $ids, $page, $pageSize, $transactionHash, $strict);
+
+        /** @var Statement $statement */
+        $statement = $queryBuilder->execute();
+        $statement->setFetchMode(PDO::FETCH_CLASS, AuditEntry::class);
+
+        return $statement->fetchAll();
+    }
+
+    /**
      * Returns an array of all audited entries/operations for a given transaction hash
      * indexed by entity FQCN.
      *
@@ -256,6 +288,31 @@ class Reader
     public function getAuditsCount(string $entity, $id = null): int
     {
         $queryBuilder = $this->getAuditsQueryBuilder($entity, $id);
+
+        $result = $queryBuilder
+            ->resetQueryPart('select')
+            ->resetQueryPart('orderBy')
+            ->select('COUNT(id)')
+            ->execute()
+            ->fetchColumn(0)
+        ;
+
+        return false === $result ? 0 : $result;
+    }
+
+    /**
+     * @param string $masterEntity
+     * @param $masterEntityId
+     * @param string $entity
+     * @return int
+     * @throws AccessDeniedException
+     * @throws InvalidArgumentException
+     */
+    public function getAuditsCountByMaster(string $masterEntity, $masterEntityId, string $entity): int
+    {
+        $ids = $this->getSubEntitiesIds($masterEntity, $masterEntityId, $entity);
+
+        $queryBuilder = $this->getAuditsQueryBuilder($entity, $ids);
 
         $result = $queryBuilder
             ->resetQueryPart('select')
@@ -397,9 +454,12 @@ class Reader
     private function filterByObjectId(QueryBuilder $queryBuilder, $id): QueryBuilder
     {
         if (null !== $id) {
+            $id = is_array($id) ? $id : [$id];
+
             $queryBuilder
-                ->andWhere('object_id = :object_id')
-                ->setParameter('object_id', $id)
+                ->andWhere(
+                    $queryBuilder->expr()->in('object_id', count($id) > 0 ? $id : [-1])
+                )
             ;
         }
 
@@ -529,5 +589,63 @@ class Reader
 
         // access denied
         throw new AccessDeniedException('You are not allowed to access audits of '.$entity.' entity.');
+    }
+
+    /**
+     * @param string $masterEntityFqn
+     * @param string $entityFqn
+     * @return array
+     */
+    private function getSubEntitiesPropertyNames(string $masterEntityFqn, string $entityFqn): array
+    {
+        $classMetaData = $this->entityManager->getClassMetadata($masterEntityFqn);
+        $associationNames = $classMetaData->getAssociationsByTargetClass($entityFqn);
+
+        return array_keys($associationNames);
+    }
+
+    private function getSubEntityPropertyAlias(string $propertyName): string
+    {
+        return $propertyName . 'Id';
+    }
+
+    private function getSubEntitiesIds(string $masterEntityFqn, int $masterEntityId, string $entityFqn): array
+    {
+        $qb = $this->entityManager->createQueryBuilder();
+        $propertyNames = $this->getSubEntitiesPropertyNames($masterEntityFqn, $entityFqn);
+
+        $ids = [];
+        $select = [];
+        foreach ($propertyNames as $propertyName) {
+            $select[] = "{$propertyName}.id as {$this->getSubEntityPropertyAlias($propertyName)}";
+        }
+
+        $qb
+            ->select($select)
+            ->from($masterEntityFqn, 'c');
+
+        foreach ($propertyNames as $propertyName) {
+            $qb->leftJoin("c.{$propertyName}", $propertyName);
+        }
+
+        $values = $qb
+            ->where(
+                $qb->expr()->eq('c.id', ':id')
+            )
+            ->setParameter(':id', $masterEntityId)
+            ->getQuery()
+            ->getArrayResult();
+
+        foreach ($values as $value) {
+            foreach ($propertyNames as $propertyName) {
+                $id = $value[$this->getSubEntityPropertyAlias($propertyName)];
+
+                if ($id) {
+                    $ids[$id] = 1;
+                }
+            }
+        }
+
+        return array_keys($ids);
     }
 }
