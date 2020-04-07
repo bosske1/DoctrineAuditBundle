@@ -8,7 +8,7 @@ use Symfony\Component\Config\Loader\Loader;
 use Symfony\Component\Config\Loader\LoaderInterface;
 use Symfony\Component\Routing\RouteCollection;
 
-class RoutingAnnotationLoader extends Loader implements LoaderInterface
+class DoctrineAuditRoutingLoader extends Loader implements LoaderInterface
 {
     /**
      * @var AnnotatedRouteControllerLoader
