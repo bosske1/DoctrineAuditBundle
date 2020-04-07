@@ -98,8 +98,9 @@ services:
       - { method: setContainer, arguments: ['@service_container'] }
     tags: ['controller.service_arguments']
 
-  DH\DoctrineAuditBundle\Routing\DoctrineAuditRoutingLoader:
-    tags: [routing.loader]
-    calls:
-      - { method: setRoutingLoaderAnnotation, arguments: ['@routing.loader.annotation'] }
-      - { method: setConfiguration, arguments: ['%dh_doctrine_audit.configuration%'] }
+#  xcentric :: figure out why this doesn't work on master
+#  DH\DoctrineAuditBundle\Routing\DoctrineAuditRoutingLoader:
+#    tags: [routing.loader]
+#    calls:
+#      - { method: setRoutingLoaderAnnotation, arguments: ['@routing.loader.annotation'] }
+#      - { method: setConfiguration, arguments: ['%dh_doctrine_audit.configuration%'] }
